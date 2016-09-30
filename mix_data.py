@@ -6,7 +6,7 @@ import random
 if __name__ == "__main__":
     src_train = open(r'data/src-train.txt').readlines()
     targ_train = open(r'data/targ-train.txt').readlines()
-    src_handle = open("data/scr-train-mixed.txt", 'w')
+    src_handle = open("data/src-train-mixed.txt", 'w')
     targ_handle = open("data/targ-train-mixed.txt", 'w')
     src = map((lambda x : x.strip('\n')), src_train)
     targ = map((lambda x : x.strip('\n')), targ_train)
