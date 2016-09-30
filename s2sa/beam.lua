@@ -38,7 +38,7 @@ cmd:option('-srctarg_dict', 'data/en-de.dict', [[Path to source-target dictionar
                                                tokens. See README.md for the format this file should be in]])
 cmd:option('-score_gold', 1, [[If = 1, score the log likelihood of the gold as well]])
 cmd:option('-n_best', 1, [[If > 1, it will also output an n_best list of decoded sentences]])
-cmd:option('-gpuid', -1, [[ID of the GPU to use (-1 = use CPU)]])
+cmd:option('-gpuid', 1, [[ID of the GPU to use (-1 = use CPU)]])
 cmd:option('-gpuid2', -1, [[Second GPU ID]])
 cmd:option('-cudnn', 0, [[If using character model, this should be = 1 if the character model was trained using cudnn]])
 
