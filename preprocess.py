@@ -196,8 +196,11 @@ def get_data(args):
             alignments = np.zeros((num_sents,newseqlength,newseqlength), dtype=np.uint8)
 
         targets = np.zeros((num_sents, newseqlength), dtype=int)
+        target_raw = np.zeros((num_sents, newseqlength), dtype=int)
         target_output = np.zeros((num_sents, newseqlength), dtype=int)
         sources = np.zeros((num_sents, newseqlength), dtype=int)
+        source_input = np.zeros((num_sents, newseqlength), dtype=int)
+        source_output = np.zeros((num_sents, newseqlength), dtype=int)
         sources_features = init_features_tensor(src_feature_indexers)
         source_lengths = np.zeros((num_sents,), dtype=int)
         target_lengths = np.zeros((num_sents,), dtype=int)
@@ -268,11 +271,14 @@ def get_data(args):
                     continue
 
             targets[sent_id] = np.array(targ[:-1],dtype=int)
+            target_raw = np.array(targ,dtype=int)
             target_lengths[sent_id] = (targets[sent_id] != 1).sum()
             if chars == 1:
                 targets_char[sent_id] = np.array(targ_char[:-1], dtype=int)
             target_output[sent_id] = np.array(targ[1:],dtype=int)
             sources[sent_id] = np.array(src, dtype=int)
+            source_input[sent_id] = np.array(src[:-1], dtype=int)
+            source_output[sent_id] = np.array(src[1:], dtype=int)
             source_lengths[sent_id] = (sources[sent_id] != 1).sum()
             if chars == 1:
                 sources_char[sent_id] = np.array(src_char, dtype=int)
@@ -294,8 +300,11 @@ def get_data(args):
         if shuffle == 1:
             rand_idx = np.random.permutation(sent_id)
             targets = targets[rand_idx]
+            target_raw = target_raw[rand_idx]
             target_output = target_output[rand_idx]
             sources = sources[rand_idx]
+            source_input = source_input[rand_idx]
+            source_output = source_output[rand_idx]
             if alignments is not None:
                 alignments = alignments[rand_idx]
             source_lengths = source_lengths[rand_idx]
@@ -311,7 +320,10 @@ def get_data(args):
         source_sort = np.argsort(source_lengths)
 
         sources = sources[source_sort]
+        source_input = source_input[source_sort]
+        source_output = source_output[source_sort]
         targets = targets[source_sort]
+        target_raw = targets[source_sort]
         target_output = target_output[source_sort]
         if alignments is not None:
             alignments = alignments[source_sort]
@@ -351,7 +363,10 @@ def get_data(args):
         f = h5py.File(outfile, "w")
 
         f["source"] = sources
+        f["source_input"] = source_input
+        f["source_output"] = sources_output
         f["target"] = targets
+        f["target_raw"] = target_raw
         f["target_output"] = target_output
         if alignments is not None:
             print "build alignment structure"

@@ -221,6 +221,8 @@ function train(train_data, valid_data)
   -- clone encoder/decoder up to max source/target length
   decoder_clones = clone_many_times(decoder, opt.max_sent_l_targ)
   encoder_clones = clone_many_times(encoder, opt.max_sent_l_src)
+  decoder_clones_2 = clone_many_times(decoder_2, opt.max_sent_l_targ)
+  encoder_clones_2 = clone_many_times(encoder_2, opt.max_sent_l_src)
   if opt.brnn == 1 then
     encoder_bwd_clones = clone_many_times(encoder_bwd, opt.max_sent_l_src)
   end
@@ -228,6 +230,10 @@ function train(train_data, valid_data)
     if encoder_clones[i].apply then
       encoder_clones[i]:apply(function(m) m:setReuse() end)
       if opt.prealloc == 1 then encoder_clones[i]:apply(function(m) m:setPrealloc() end) end
+    end
+    if encoder_clones_2[i].apply then
+      encoder_clones_2[i]:apply(function(m) m:setReuse() end)
+      if opt.prealloc == 1 then encoder_clones_2[i]:apply(function(m) m:setPrealloc() end) end
     end
     if opt.brnn == 1 then
       encoder_bwd_clones[i]:apply(function(m) m:setReuse() end)
@@ -238,6 +244,10 @@ function train(train_data, valid_data)
     if decoder_clones[i].apply then
       decoder_clones[i]:apply(function(m) m:setReuse() end)
       if opt.prealloc == 1 then decoder_clones[i]:apply(function(m) m:setPrealloc() end) end
+    end
+    if decoder_clones_2[i].apply then
+      decoder_clones_2[i]:apply(function(m) m:setReuse() end)
+      if opt.prealloc == 1 then decoder_clones_2[i]:apply(function(m) m:setPrealloc() end) end
     end
   end
 
@@ -374,6 +384,7 @@ function train(train_data, valid_data)
       local batch_l, target_l, source_l = d[5], d[6], d[7]
       local source_features = d[9]
       local alignment = d[10]
+      local source_input, source_output, target_raw = d[11], d[12], d[13]
       local norm_alignment
       if opt.guided_alignment == 1 then
         replicator=nn.Replicate(alignment:size(2),2)
@@ -396,12 +407,26 @@ function train(train_data, valid_data)
       if opt.gpuid >= 0 then
         cutorch.setDevice(opt.gpuid)
       end
+      local iter = 1
+      local current_source = source:clone()
+      local current_target = target:clone()
+      local current_target_output = target_out:clone()
+      local current_source_l = source_l:clone()
+      local current_target_l = target_l:clone()
+      local all_outputs = {}
+      local all_targets = {}
+      local source_pool = {source, target_raw}
+      local target_pool = {target, source_input}
+      local output_pool = {target_out, source_output}
+      local l_pool = {source_l, target_l}
+    while iter < 3 do
       local rnn_state_enc = reset_state(init_fwd_enc, batch_l, 0)
       local context = context_proto[{{1, batch_l}, {1, source_l}}]
       -- forward prop encoder
-      for t = 1, source_l do
+      for t = 1, current_source_l do
         encoder_clones[t]:training()
-        local encoder_input = {source[t]}
+        -- encoder_clones_2[t]:training()
+        local encoder_input = {current_source[t]}
         if data.num_source_features > 0 then
           append_table(encoder_input, source_features[t])
         end
@@ -449,15 +474,17 @@ function train(train_data, valid_data)
       end
       -- forward prop decoder
       local preds = {}
+      local pred_sen = {}
       local attn_outputs = {}
       local decoder_input
-      for t = 1, target_l do
+      for t = 1, current_target_l do
         decoder_clones[t]:training()
+        -- decoder_clones_2[t]:training()
         local decoder_input
         if opt.attn == 1 then
-          decoder_input = {target[t], context, table.unpack(rnn_state_dec[t-1])}
+          decoder_input = {current_target[t], context, table.unpack(rnn_state_dec[t-1])}
         else
-          decoder_input = {target[t], context[{{}, source_l}], table.unpack(rnn_state_dec[t-1])}
+          decoder_input = {current_target[t], context[{{}, source_l}], table.unpack(rnn_state_dec[t-1])}
         end
         local out = decoder_clones[t]:forward(decoder_input)
         local out_pred_idx = #out
@@ -467,6 +494,10 @@ function train(train_data, valid_data)
         end
         local next_state = {}
         table.insert(preds, out[out_pred_idx])
+        tok = generator:forward(out[out_pred_idx])
+        table.insert(pred_sen, tok)
+        table.insert(all_outputs, tok)
+        
         if opt.input_feed == 1 then
           table.insert(next_state, out[out_pred_idx])
         end
@@ -475,6 +506,14 @@ function train(train_data, valid_data)
         end
         rnn_state_dec[t] = next_state
       end
+      append_table(all_targets, current_target_output)
+      current_source = pred_sen:clone()
+      current_target = target_pool[iter % 2]:clone()
+      current_target_output = output_pool[iter % 2]:clone()
+      current_source_l = l_pool[iter % 2]:clone()
+      current_target_l = l_pool[(iter + 1) % 2]:clone()
+      iter = iter + 1
+    end
 
       -- backward prop decoder
       encoder_grads:zero()
@@ -490,10 +529,14 @@ function train(train_data, valid_data)
       local loss = 0
       local loss_cll = 0
       for t = target_l, 1, -1 do
+        --[[
         local pred = generator:forward(preds[t])
 
         local input = pred
         local output = target_out[t]
+        ]]--
+        local input = all_outputs[t]
+        local output = all_targets[t]
         if opt.guided_alignment == 1 then
           input={input, attn_outputs[t]}
           output={output, norm_alignment[{{},{},t}]}
@@ -989,7 +1032,11 @@ function main()
   if opt.train_from:len() == 0 then
     encoder = make_lstm(valid_data, opt, 'enc', opt.use_chars_enc)
     decoder = make_lstm(valid_data, opt, 'dec', opt.use_chars_dec)
+    encoder_2 = encoder:clone('weight', 'bias')
+    decoder_2 = decoder:clone('weight', 'bias')
     generator, criterion = make_generator(valid_data, opt)
+    generator_2 = generator:clone()
+    criterion_2 = criterion
     if opt.brnn == 1 then
       encoder_bwd = make_lstm(valid_data, opt, 'enc', opt.use_chars_enc)
     end
@@ -1020,7 +1067,7 @@ function main()
     criterion:add(nn.MSECriterion(), opt.guided_alignment_weight)
   end
 
-  layers = {encoder, decoder, generator}
+  layers = {encoder, decoder, generator, encoder_2, decoder_2, generator_2}
   if opt.brnn == 1 then
     table.insert(layers, encoder_bwd)
   end
@@ -1059,6 +1106,8 @@ function main()
   end
   encoder:apply(get_layer)
   decoder:apply(get_layer)
+  encoder_2:apply(get_layer)
+  decoder_2:apply(get_layer)
   if opt.brnn == 1 then
     if opt.use_chars_enc == 1 then
       charcnn_offset = #charcnn_layers
