@@ -58,7 +58,10 @@ function data:__init(opt, data_file)
   local f = hdf5.open(data_file, 'r')
 
   self.source = f:read('source'):all()
+  self.source_input = f:read('source_input'):all()
+  self.source_output = f:read('source_output'):all()
   self.target = f:read('target'):all()
+  self.target_raw = f:read('target_raw'):all()
   self.target_output = f:read('target_output'):all()
   self.target_l = f:read('target_l'):all() --max target length each batch
   self.target_l_all = f:read('target_l_all'):all()
@@ -124,9 +127,11 @@ function data:__init(opt, data_file)
     source_l_rev[i] = max_source_l - i + 1
   end
   for i = 1, self.length do
-    local source_i, target_i
+    local source_i, target_i, source_input_i, source_output_i, target_raw_i
     local source_features_i
     local target_output_i = self.target_output:sub(self.batch_idx[i],self.batch_idx[i]
+      +self.batch_l[i]-1, 1, self.target_l[i])
+    local target_raw_i = self.target_raw:sub(self.batch_idx[i],self.batch_idx[i]
       +self.batch_l[i]-1, 1, self.target_l[i])
     local target_l_i = self.target_l_all:sub(self.batch_idx[i],
       self.batch_idx[i]+self.batch_l[i]-1)
@@ -136,6 +141,10 @@ function data:__init(opt, data_file)
         self.source_l[i]):transpose(1,2):contiguous()
     else
       source_i = self.source:sub(self.batch_idx[i], self.batch_idx[i]+self.batch_l[i]-1,
+        1, self.source_l[i]):transpose(1,2)
+      source_input_i = self.source_input:sub(self.batch_idx[i], self.batch_idx[i]+self.batch_l[i]-1,
+        1, self.source_l[i]):transpose(1,2)
+      source_output_i = self.source_put:sub(self.batch_idx[i], self.batch_idx[i]+self.batch_l[i]-1,
         1, self.source_l[i]):transpose(1,2)
     end
     if opt.reverse_src == 1 then
@@ -183,7 +192,10 @@ function data:__init(opt, data_file)
         self.source_l[i],
         target_l_i,
         source_features_i,
-        alignment_i})
+        alignment_i,
+        source_input_i,
+        source_output_i,
+        target_raw_i})
   end
 end
 
@@ -195,10 +207,10 @@ function data.__index(self, idx)
   if type(idx) == "string" then
     return data[idx]
   else
-    local target_input = self.batches[idx][1]
+    local target = self.batches[idx][1]
     local target_output = self.batches[idx][2]
     local nonzeros = self.batches[idx][3]
-    local source_input = self.batches[idx][4]
+    local source = self.batches[idx][4]
     local batch_l = self.batches[idx][5]
     local target_l = self.batches[idx][6]
     local source_l = self.batches[idx][7]
@@ -210,23 +222,30 @@ function data.__index(self, idx)
                                       source_l,
                                       target_l,
                                       opt.start_symbol)
+    local source_input = self.batches[idx][11]
+    local source_output = self.batches[idx][12]
+    local target_raw = self.batches[idx][13]
 
     if opt.gpuid >= 0 then --if multi-gpu, source lives in gpuid1, rest on gpuid2
       cutorch.setDevice(opt.gpuid)
+      source = source:cuda()
       source_input = source_input:cuda()
+      source_output = source_output:cuda()
       source_features = features_on_gpu(source_features)
       if opt.gpuid2 >= 0 then
         cutorch.setDevice(opt.gpuid2)
       end
-      target_input = target_input:cuda()
+      target = target:cuda()
+      target_raw = target_raw:cuda()
       target_output = target_output:cuda()
       target_l_all = target_l_all:cuda()
       if opt.guided_alignment == 1 then
         alignment = alignment:cuda()
       end
     end
-    return {target_input, target_output, nonzeros, source_input,
-      batch_l, target_l, source_l, target_l_all, source_features, alignment}
+    return {target, target_output, nonzeros, source,
+      batch_l, target_l, source_l, target_l_all, source_features, alignment,
+      source_input, source_output, target_raw}
   end
 end
 
