@@ -425,6 +425,7 @@ function train(train_data, valid_data, train_iter)
       for t = 1, current_source_l do
         encoder_clones[t]:training()
         -- encoder_clones_2[t]:training()
+		-- print(iter, current_source[t]:size())
         local encoder_input = {current_source[t]}
 		-- print(current_source[t])
         if data.num_source_features > 0 then
@@ -541,7 +542,8 @@ function train(train_data, valid_data, train_iter)
       outputs = {}
       for t = target_l, 1, -1 do
         local pred = generator:forward(preds[t])
-        table.insert(outputs, torch.max(pred, 2))
+		m, idx = torch.max(pred, 2)
+        table.insert(outputs, idx:t()[1])
 
         local input = pred
         local output = target_out[t]
@@ -735,6 +737,7 @@ function train(train_data, valid_data, train_iter)
       current_source = {}
       for t = target_l, 1, -1 do
         current_source[target_l - t + 1] = outputs[t]
+		-- print(outputs[t]:size())
       end
       current_target = target_pool[iter % 2 + 1]:clone()
       current_target_output = output_pool[iter % 2 + 1]:clone()

@@ -210,7 +210,7 @@ function train(train_data, valid_data, train_iter)
   -- prototypes for gradients so there is no need to clone
   encoder_grad_proto = torch.zeros(opt.max_batch_l, opt.max_sent_l * train_iter, opt.rnn_size)
   encoder_bwd_grad_proto = torch.zeros(opt.max_batch_l, opt.max_sent_l * train_iter, opt.rnn_size)
-  context_proto = torch.zeros(opt.max_batch_l, opt.max_sent_l * train_i * train_iter, opt.rnn_size)
+  context_proto = torch.zeros(opt.max_batch_l, opt.max_sent_l * train_iter, opt.rnn_size)
   -- need more copies of the above if using two gpus
   if opt.gpuid2 >= 0 then
     encoder_grad_proto2 = torch.zeros(opt.max_batch_l, opt.max_sent_l, opt.rnn_size)
