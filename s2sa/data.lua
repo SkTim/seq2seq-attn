@@ -68,6 +68,9 @@ function data:__init(opt, data_file)
   self.target_l_all:add(-1)
   self.batch_l = f:read('batch_l'):all()
   self.source_l = f:read('batch_w'):all() --max source length each batch
+  self.cm_l = torch.cmax(self.target_l, self.source_l)
+  self.target_l = self.cm_l
+  self.source_l = self.cm_l
 
   self.num_source_features = f:read('num_source_features'):all()[1]
   self.source_features = {}
@@ -144,7 +147,7 @@ function data:__init(opt, data_file)
         1, self.source_l[i]):transpose(1,2)
       source_input_i = self.source_input:sub(self.batch_idx[i], self.batch_idx[i]+self.batch_l[i]-1,
         1, self.source_l[i]):transpose(1,2)
-      source_output_i = self.source_put:sub(self.batch_idx[i], self.batch_idx[i]+self.batch_l[i]-1,
+      source_output_i = self.source_output:sub(self.batch_idx[i], self.batch_idx[i]+self.batch_l[i]-1,
         1, self.source_l[i]):transpose(1,2)
     end
     if opt.reverse_src == 1 then

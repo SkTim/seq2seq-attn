@@ -411,22 +411,28 @@ function train(train_data, valid_data)
       local current_source = source:clone()
       local current_target = target:clone()
       local current_target_output = target_out:clone()
-      local current_source_l = source_l:clone()
-      local current_target_l = target_l:clone()
+      local current_source_l = source_l
+      local current_target_l = target_l
       local all_outputs = {}
       local all_targets = {}
       local source_pool = {source, target_raw}
       local target_pool = {target, source_input}
       local output_pool = {target_out, source_output}
       local l_pool = {source_l, target_l}
+	  local preds = {}
+	  local rnn_state_enc
+	  local rnn_state_dec
     while iter < 3 do
-      local rnn_state_enc = reset_state(init_fwd_enc, batch_l, 0)
-      local context = context_proto[{{1, batch_l}, {1, source_l}}]
+	  -- print('iter %d' % iter)
+	  -- print(current_source:size())
+      rnn_state_enc = reset_state(init_fwd_enc, batch_l, 0)
+      local context = context_proto[{{1, batch_l}, {1, current_source_l}}]
       -- forward prop encoder
       for t = 1, current_source_l do
         encoder_clones[t]:training()
         -- encoder_clones_2[t]:training()
         local encoder_input = {current_source[t]}
+		-- print(current_source[t])
         if data.num_source_features > 0 then
           append_table(encoder_input, source_features[t])
         end
@@ -459,7 +465,7 @@ function train(train_data, valid_data)
         context = context2
       end
       -- copy encoder last hidden state to decoder initial state
-      local rnn_state_dec = reset_state(init_fwd_dec, batch_l, 0)
+      rnn_state_dec = reset_state(init_fwd_dec, batch_l, 0)
       if opt.init_dec == 1 then
         for L = 1, opt.num_layers do
           rnn_state_dec[0][L*2-1+opt.input_feed]:copy(rnn_state_enc[source_l][L*2-1])
@@ -473,8 +479,8 @@ function train(train_data, valid_data)
         end
       end
       -- forward prop decoder
-      local preds = {}
-      local pred_sen = {}
+      -- local preds = {}
+      local pred_sen = torch.ones(current_target_l, batch_l):cuda()
       local attn_outputs = {}
       local decoder_input
       for t = 1, current_target_l do
@@ -495,8 +501,14 @@ function train(train_data, valid_data)
         local next_state = {}
         table.insert(preds, out[out_pred_idx])
         tok = generator:forward(out[out_pred_idx])
-        table.insert(pred_sen, tok)
+        -- table.insert(pred_sen, tok)
+		-- print(tok:size())
+		-- print(pred_sen:size())
+		p, index = torch.max(tok, 2)
+		-- print(index:size())
+		pred_sen[t] = index:cuda()
         table.insert(all_outputs, tok)
+		table.insert(all_targets, current_target_output[t])
         
         if opt.input_feed == 1 then
           table.insert(next_state, out[out_pred_idx])
@@ -506,12 +518,13 @@ function train(train_data, valid_data)
         end
         rnn_state_dec[t] = next_state
       end
-      append_table(all_targets, current_target_output)
+      -- append_table(all_targets, current_target_output)
+	  -- print(pred_sen)
       current_source = pred_sen:clone()
-      current_target = target_pool[iter % 2]:clone()
-      current_target_output = output_pool[iter % 2]:clone()
-      current_source_l = l_pool[iter % 2]:clone()
-      current_target_l = l_pool[(iter + 1) % 2]:clone()
+      current_target = target_pool[iter % 2 + 1]:clone()
+      current_target_output = output_pool[iter % 2 + 1]:clone()
+      current_source_l = l_pool[iter % 2 + 1]
+      current_target_l = l_pool[(iter + 1) % 2 + 1]
       iter = iter + 1
     end
 
@@ -528,7 +541,7 @@ function train(train_data, valid_data)
       end
       local loss = 0
       local loss_cll = 0
-      for t = target_l, 1, -1 do
+      for t = #all_outputs, 1, -1 do
         --[[
         local pred = generator:forward(preds[t])
 
@@ -557,6 +570,7 @@ function train(train_data, valid_data)
         end
 
         dl_dpred:div(batch_l)
+		-- print(all_outputs[t]:size(), dl_dpred:size())
         local dl_dtarget = generator:backward(preds[t], dl_dpred)
 
         local rnn_state_dec_pred_idx = #drnn_state_dec
@@ -568,11 +582,21 @@ function train(train_data, valid_data)
 
         local decoder_input
         if opt.attn == 1 then
-          decoder_input = {target[t], context, table.unpack(rnn_state_dec[t-1])}
+		  -- print(rnn_state_dec, (t - 1) % opt.max_sent_l_targ, t)
+		  -- print(rnn_state_dec[t - 1])
+          decoder_input = {all_targets[t], context, table.unpack(rnn_state_dec[(t - 1) % target_l])}
         else
-          decoder_input = {target[t], context[{{}, source_l}], table.unpack(rnn_state_dec[t-1])}
+          decoder_input = {all_targets[t], context[{{}, source_l}], table.unpack(rnn_state_dec[(t - 1) % target_l])}
         end
-        local dlst = decoder_clones[t]:backward(decoder_input, drnn_state_dec)
+		-- print(t, t % target_l)
+		local idx
+		if t % target_l == 0 then
+		  idx = target_l
+		else
+		  idx = t % target_l
+		end
+		-- print(idx)
+        local dlst = decoder_clones[idx]:backward(decoder_input, drnn_state_dec)
         -- accumulate encoder/decoder grads
         if opt.attn == 1 then
           encoder_grads:add(dlst[2])

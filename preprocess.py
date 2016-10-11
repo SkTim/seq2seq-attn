@@ -196,9 +196,9 @@ def get_data(args):
             alignments = np.zeros((num_sents,newseqlength,newseqlength), dtype=np.uint8)
 
         targets = np.zeros((num_sents, newseqlength), dtype=int)
-        target_raw = np.zeros((num_sents, newseqlength), dtype=int)
+        target_raw = np.zeros((num_sents, newseqlength + 1), dtype=int)
         target_output = np.zeros((num_sents, newseqlength), dtype=int)
-        sources = np.zeros((num_sents, newseqlength), dtype=int)
+        sources = np.zeros((num_sents, newseqlength + 1), dtype=int)
         source_input = np.zeros((num_sents, newseqlength), dtype=int)
         source_output = np.zeros((num_sents, newseqlength), dtype=int)
         sources_features = init_features_tensor(src_feature_indexers)
@@ -246,7 +246,7 @@ def get_data(args):
             targ = target_indexer.convert_sequence(targ)
             targ = np.array(targ, dtype=int)
 
-            src = pad(src, newseqlength, src_indexer.PAD)
+            src = pad(src, newseqlength + 1, src_indexer.PAD)
             src_char = []
             for word in src:
                 if chars == 1:
@@ -271,7 +271,7 @@ def get_data(args):
                     continue
 
             targets[sent_id] = np.array(targ[:-1],dtype=int)
-            target_raw = np.array(targ,dtype=int)
+            target_raw[sent_id] = np.array(targ,dtype=int)
             target_lengths[sent_id] = (targets[sent_id] != 1).sum()
             if chars == 1:
                 targets_char[sent_id] = np.array(targ_char[:-1], dtype=int)
@@ -364,7 +364,7 @@ def get_data(args):
 
         f["source"] = sources
         f["source_input"] = source_input
-        f["source_output"] = sources_output
+        f["source_output"] = source_output
         f["target"] = targets
         f["target_raw"] = target_raw
         f["target_output"] = target_output
