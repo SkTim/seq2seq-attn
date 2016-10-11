@@ -25,7 +25,7 @@ cmd:option('-train_from', '', [[If training from a checkpoint then this is the p
 cmd:text("")
 cmd:text("**Model options**")
 cmd:text("")
-
+cmd:option('-training_iter', 2, [[Number of layers in the LSTM encoder/decoder]])
 cmd:option('-num_layers', 2, [[Number of layers in the LSTM encoder/decoder]])
 cmd:option('-rnn_size', 500, [[Size of LSTM hidden states]])
 cmd:option('-word_vec_size', 500, [[Word embedding sizes]])
@@ -110,7 +110,7 @@ cmd:text("")
 cmd:option('-start_symbol', 0, [[Use special start-of-sentence and end-of-sentence tokens
                                on the source side. We've found this to make minimal difference]])
 -- GPU
-cmd:option('-gpuid', -1, [[Which gpu to use. -1 = use CPU]])
+cmd:option('-gpuid', 1, [[Which gpu to use. -1 = use CPU]])
 cmd:option('-gpuid2', -1, [[If this is >= 0, then the model will use two GPUs whereby the encoder
                           is on the first GPU and the decoder is on the second GPU.
                           This will allow you to train with bigger batches/models.]])
@@ -142,7 +142,7 @@ function append_table(dst, src)
   end
 end
 
-function train(train_data, valid_data)
+function train(train_data, valid_data, train_iter)
 
   local timer = torch.Timer()
   local num_params = 0
@@ -194,8 +194,8 @@ function train(train_data, valid_data)
       end
     end
   end
-
-  print("Number of parameters: " .. num_params .. " (active: " .. num_params-num_prunedparams .. ")")
+  
+   print("Number of parameters: " .. num_params .. " (active: " .. num_params-num_prunedparams .. ")")
 
   if opt.gpuid >= 0 and opt.gpuid2 >= 0 then
     cutorch.setDevice(opt.gpuid)
@@ -375,9 +375,9 @@ function train(train_data, valid_data)
       end
       local target, target_out, nonzeros, source = d[1], d[2], d[3], d[4]
       local batch_l, target_l, source_l = d[5], d[6], d[7]
-	  print(target_l, source_l)
       local source_features = d[9]
       local alignment = d[10]
+      local source_input, source_output, target_raw = d[11], d[12], d[13]
       local norm_alignment
       if opt.guided_alignment == 1 then
         replicator=nn.Replicate(alignment:size(2),2)
@@ -400,12 +400,33 @@ function train(train_data, valid_data)
       if opt.gpuid >= 0 then
         cutorch.setDevice(opt.gpuid)
       end
-      local rnn_state_enc = reset_state(init_fwd_enc, batch_l, 0)
-      local context = context_proto[{{1, batch_l}, {1, source_l}}]
+      local iter = 1
+      local current_source = source:clone()
+      local current_target = target:clone()
+      local current_target_output = target_out:clone()
+      local current_source_l = source_l
+      local current_target_l = target_l
+      local all_outputs = {}
+      local all_targets = {}
+      local source_pool = {source, target_raw}
+      local target_pool = {target, source_input}
+      local output_pool = {target_out, source_output}
+      local l_pool = {source_l, target_l}
+	  -- local preds = {}
+	  local rnn_state_enc
+	  local rnn_state_dec
+      local loss = 0
+    for iter = 1, train_iter do
+	  -- print('iter %d' % iter)
+	  -- print(current_source:size())
+      rnn_state_enc = reset_state(init_fwd_enc, batch_l, 0)
+      local context = context_proto[{{1, batch_l}, {1, current_source_l}}]
       -- forward prop encoder
-      for t = 1, source_l do
+      for t = 1, current_source_l do
         encoder_clones[t]:training()
-        local encoder_input = {source[t]}
+        -- encoder_clones_2[t]:training()
+        local encoder_input = {current_source[t]}
+		-- print(current_source[t])
         if data.num_source_features > 0 then
           append_table(encoder_input, source_features[t])
         end
@@ -438,7 +459,7 @@ function train(train_data, valid_data)
         context = context2
       end
       -- copy encoder last hidden state to decoder initial state
-      local rnn_state_dec = reset_state(init_fwd_dec, batch_l, 0)
+      rnn_state_dec = reset_state(init_fwd_dec, batch_l, 0)
       if opt.init_dec == 1 then
         for L = 1, opt.num_layers do
           rnn_state_dec[0][L*2-1+opt.input_feed]:copy(rnn_state_enc[source_l][L*2-1])
@@ -453,15 +474,17 @@ function train(train_data, valid_data)
       end
       -- forward prop decoder
       local preds = {}
+      -- local pred_sen = torch.ones(current_target_l, batch_l):cuda()
       local attn_outputs = {}
       local decoder_input
-      for t = 1, target_l do
+      for t = 1, current_target_l do
         decoder_clones[t]:training()
+        -- decoder_clones_2[t]:training()
         local decoder_input
         if opt.attn == 1 then
-          decoder_input = {target[t], context, table.unpack(rnn_state_dec[t-1])}
+          decoder_input = {current_target[t], context, table.unpack(rnn_state_dec[t-1])}
         else
-          decoder_input = {target[t], context[{{}, source_l}], table.unpack(rnn_state_dec[t-1])}
+          decoder_input = {current_target[t], context[{{}, source_l}], table.unpack(rnn_state_dec[t-1])}
         end
         local out = decoder_clones[t]:forward(decoder_input)
         local out_pred_idx = #out
@@ -471,6 +494,16 @@ function train(train_data, valid_data)
         end
         local next_state = {}
         table.insert(preds, out[out_pred_idx])
+        -- tok = generator:forward(out[out_pred_idx])
+        -- table.insert(pred_sen, tok)
+		-- print(tok:size())
+		-- print(pred_sen:size())
+		-- p, index = torch.max(tok, 2)
+		-- print(index:size())
+		-- pred_sen[t] = index:cuda()
+        -- table.insert(all_outputs, tok)
+		-- table.insert(all_targets, current_target_output[t])
+        
         if opt.input_feed == 1 then
           table.insert(next_state, out[out_pred_idx])
         end
@@ -479,6 +512,18 @@ function train(train_data, valid_data)
         end
         rnn_state_dec[t] = next_state
       end
+      -- append_table(all_targets, current_target_output)
+	  -- print(pred_sen)
+
+      --[[
+      current_source = pred_sen:clone()
+      current_target = target_pool[iter % 2 + 1]:clone()
+      current_target_output = output_pool[iter % 2 + 1]:clone()
+      current_source_l = l_pool[iter % 2 + 1]
+      current_target_l = l_pool[(iter + 1) % 2 + 1]
+      iter = iter + 1
+      ]]--
+    --end
 
       -- backward prop decoder
       encoder_grads:zero()
@@ -491,10 +536,12 @@ function train(train_data, valid_data)
         attn_init:zero()
         table.insert(drnn_state_dec, attn_init[{{1, batch_l}, {1, source_l}}])
       end
-      local loss = 0
+      -- local loss = 0
       local loss_cll = 0
+      outputs = {}
       for t = target_l, 1, -1 do
         local pred = generator:forward(preds[t])
+        table.insert(outputs, torch.max(pred, 2))
 
         local input = pred
         local output = target_out[t]
@@ -518,7 +565,7 @@ function train(train_data, valid_data)
         end
 
         dl_dpred:div(batch_l)
-		-- print(preds[t]:size(), dl_dpred:size())
+		-- print(all_outputs[t]:size(), dl_dpred:size())
         local dl_dtarget = generator:backward(preds[t], dl_dpred)
 
         local rnn_state_dec_pred_idx = #drnn_state_dec
@@ -530,9 +577,11 @@ function train(train_data, valid_data)
 
         local decoder_input
         if opt.attn == 1 then
-          decoder_input = {target[t], context, table.unpack(rnn_state_dec[t-1])}
+		  -- print(rnn_state_dec, (t - 1) % opt.max_sent_l_targ, t)
+		  -- print(rnn_state_dec[t - 1])
+          decoder_input = {all_targets[t], context, table.unpack(rnn_state_dec[t - 1])}
         else
-          decoder_input = {target[t], context[{{}, source_l}], table.unpack(rnn_state_dec[t-1])}
+          decoder_input = {all_targets[t], context[{{}, source_l}], table.unpack(rnn_state_dec[t - 1])}
         end
         local dlst = decoder_clones[t]:backward(decoder_input, drnn_state_dec)
         -- accumulate encoder/decoder grads
@@ -584,8 +633,8 @@ function train(train_data, valid_data)
         end
       end
 
-      for t = source_l, 1, -1 do
-        local encoder_input = {source[t]}
+      for t = current_source_l, 1, -1 do
+        local encoder_input = {current_source[t]}
         if data.num_source_features > 0 then
           append_table(encoder_input, source_features[t])
         end
@@ -683,6 +732,15 @@ function train(train_data, valid_data)
           end
         end
       end
+      current_source = {}
+      for t = target_l, 1, -1 do
+        current_source[target_l - t + 1] = outputs[t]
+      end
+      current_target = target_pool[iter % 2 + 1]:clone()
+      current_target_output = output_pool[iter % 2 + 1]:clone()
+      current_source_l = l_pool[iter % 2 + 1]
+      current_target_l = l_pool[(iter + 1) % 2 + 1]
+    end
 
       -- Bookkeeping
       num_words_target = num_words_target + batch_l*target_l
@@ -942,6 +1000,7 @@ end
 function main()
   -- parse input params
   opt = cmd:parse(arg)
+  train_iter = opt.training_iter
 
   torch.manualSeed(opt.seed)
 
@@ -994,7 +1053,11 @@ function main()
   if opt.train_from:len() == 0 then
     encoder = make_lstm(valid_data, opt, 'enc', opt.use_chars_enc)
     decoder = make_lstm(valid_data, opt, 'dec', opt.use_chars_dec)
+    encoder_2 = encoder:clone('weight', 'bias')
+    decoder_2 = decoder:clone('weight', 'bias')
     generator, criterion = make_generator(valid_data, opt)
+    generator_2 = generator:clone()
+    criterion_2 = criterion
     if opt.brnn == 1 then
       encoder_bwd = make_lstm(valid_data, opt, 'enc', opt.use_chars_enc)
     end
@@ -1008,11 +1071,11 @@ function main()
     opt.input_feed = model_opt.input_feed
     opt.attn = model_opt.attn
     opt.brnn = model_opt.brnn
-    encoder = model[1]
-    decoder = model[2]
-    generator = model[3]
+    encoder = model[1]:double()
+    decoder = model[2]:double()
+    generator = model[3]:double()
     if model_opt.brnn == 1 then
-      encoder_bwd = model[4]
+      encoder_bwd = model[4]:double()
     end
     _, criterion = make_generator(valid_data, opt)
   end
@@ -1025,7 +1088,7 @@ function main()
     criterion:add(nn.MSECriterion(), opt.guided_alignment_weight)
   end
 
-  layers = {encoder, decoder, generator}
+  layers = {encoder, decoder, generator, encoder_2, decoder_2, generator_2}
   if opt.brnn == 1 then
     table.insert(layers, encoder_bwd)
   end
@@ -1064,13 +1127,15 @@ function main()
   end
   encoder:apply(get_layer)
   decoder:apply(get_layer)
+  encoder_2:apply(get_layer)
+  decoder_2:apply(get_layer)
   if opt.brnn == 1 then
     if opt.use_chars_enc == 1 then
       charcnn_offset = #charcnn_layers
     end
     encoder_bwd:apply(get_layer)
   end
-  train(train_data, valid_data)
+  train(train_data, valid_data, train_iter)
 end
 
 main()
