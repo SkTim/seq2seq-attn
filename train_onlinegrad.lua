@@ -416,6 +416,8 @@ function train(train_data, valid_data, train_iter)
 	  local rnn_state_enc
 	  local rnn_state_dec
       local loss = 0
+	  local param_norm
+	  local grad_norm
     for iter = 1, train_iter do
 	  -- print('iter %d' % iter)
 	  -- print(current_source:size())
@@ -615,7 +617,7 @@ function train(train_data, valid_data, train_iter)
         word_vec_layers[2].gradWeight:zero()
       end
 
-      local grad_norm = 0
+      grad_norm = 0
       grad_norm = grad_norm + grad_params[2]:norm()^2 + grad_params[3]:norm()^2
 
       -- backward prop encoder
@@ -701,7 +703,7 @@ function train(train_data, valid_data, train_iter)
         end
       end
       -- Shrink norm and update params
-      local param_norm = 0
+      param_norm = 0
       local shrinkage = opt.max_grad_norm / grad_norm
       for j = 1, #grad_params do
         if opt.gpuid >= 0 and opt.gpuid2 >= 0 then
