@@ -58,8 +58,8 @@ function data:__init(opt, data_file)
   local f = hdf5.open(data_file, 'r')
 
   self.source = f:read('source'):all()
-  self.source_input = f:read('source_input'):all()
-  self.source_output = f:read('source_output'):all()
+  self.source_input = self.source[{{},{1, self.source:size(2)-1}}]
+  self.source_output = self.source[{{},{2, self.source:size(2)}}]
   self.target = f:read('target'):all()
   self.target_raw = f:read('target_raw'):all()
   self.target_output = f:read('target_output'):all()
@@ -90,6 +90,7 @@ function data:__init(opt, data_file)
   if opt.start_symbol == 0 then
     self.source_l:add(-2)
     self.source = self.source[{{},{2, self.source:size(2)-1}}]
+    self.target_raw = self.target_raw[{{},{2, self.source:size(2)-1}}]
     for i = 1,self.num_source_features do
       self.source_features[i] = self.source_features[i][{{},{2, self.source_features[i]:size(2)-1}}]
     end
