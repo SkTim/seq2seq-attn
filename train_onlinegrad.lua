@@ -412,9 +412,9 @@ function train(train_data, valid_data, train_iter)
       local target_pool = {target, source_input}
       local output_pool = {target_out, source_output}
       local l_pool = {source_l, target_l}
-	  -- local preds = {}
 	  local rnn_state_enc
 	  local rnn_state_dec
+    local rnn_state_enc_bwd
       local loss = 0
 	  local param_norm
 	  local grad_norm
@@ -439,7 +439,6 @@ function train(train_data, valid_data, train_iter)
         context[{{},t}]:copy(out[#out])
       end
 
-      local rnn_state_enc_bwd
       if opt.brnn == 1 then
         rnn_state_enc_bwd = reset_state(init_fwd_enc, batch_l, source_l+1)
         for t = source_l, 1, -1 do
