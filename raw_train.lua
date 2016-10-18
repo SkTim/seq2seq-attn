@@ -110,7 +110,7 @@ cmd:text("")
 cmd:option('-start_symbol', 0, [[Use special start-of-sentence and end-of-sentence tokens
                                on the source side. We've found this to make minimal difference]])
 -- GPU
-cmd:option('-gpuid', -1, [[Which gpu to use. -1 = use CPU]])
+cmd:option('-gpuid', 1, [[Which gpu to use. -1 = use CPU]])
 cmd:option('-gpuid2', -1, [[If this is >= 0, then the model will use two GPUs whereby the encoder
                           is on the first GPU and the decoder is on the second GPU.
                           This will allow you to train with bigger batches/models.]])
@@ -375,7 +375,6 @@ function train(train_data, valid_data)
       end
       local target, target_out, nonzeros, source = d[1], d[2], d[3], d[4]
       local batch_l, target_l, source_l = d[5], d[6], d[7]
-	  print(target_l, source_l)
       local source_features = d[9]
       local alignment = d[10]
       local norm_alignment

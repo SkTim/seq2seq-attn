@@ -90,7 +90,7 @@ function data:__init(opt, data_file)
   if opt.start_symbol == 0 then
     self.source_l:add(-2)
     self.source = self.source[{{},{2, self.source:size(2)-1}}]
-    self.target_raw = self.target_raw[{{},{2, self.source:size(2)-1}}]
+    -- self.target_raw = self.target_raw[{{},{2, self.source:size(2)-1}}]
     for i = 1,self.num_source_features do
       self.source_features[i] = self.source_features[i][{{},{2, self.source_features[i]:size(2)-1}}]
     end
@@ -136,7 +136,7 @@ function data:__init(opt, data_file)
     local target_output_i = self.target_output:sub(self.batch_idx[i],self.batch_idx[i]
       +self.batch_l[i]-1, 1, self.target_l[i])
     local target_raw_i = self.target_raw:sub(self.batch_idx[i],self.batch_idx[i]
-      +self.batch_l[i]-1, 1, self.target_l[i])
+      +self.batch_l[i]-1, 1, self.source_l[i])
     local target_l_i = self.target_l_all:sub(self.batch_idx[i],
       self.batch_idx[i]+self.batch_l[i]-1)
     if opt.use_chars_enc == 1 then
